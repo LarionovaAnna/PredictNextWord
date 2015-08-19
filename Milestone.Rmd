@@ -1,0 +1,181 @@
+---
+title: "Coursera Milestone Report"
+author: "Larionova Anna"
+date: "26 июля 2015 г."
+output: html_document
+---
+#Introduction
+
+The goal of this project is to build a predictive text model like those used by SwiftKey in their smart keyboard. Data science in the area of natural language processing will be applied in this project.
+
+The training data for this project consist of blogs, news and twitter feeds. They are also provided in 4 different languages: German, English, Finnish and Russian. For this project, we will be using the English data.
+
+#Getting and Loading Data
+
+Adding required libraries:
+```{r, echo = FALSE, message = FALSE}
+library(tm)
+library(rJava)
+library(RWeka)
+library(SnowballC)
+library(wordcloud)
+library(ggplot2)
+library(tm.plugin.webmining)
+library(stringr)
+```
+
+Data can be downloaded here: <a href="https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip" target="_blank">location</a>
+Loading data into R. Given the large amount of text and data sizes, take only 50000 rows from each file.
+```{r}
+news <- readLines("en_US/en_US.news.txt", warn = FALSE, n = 50000)
+blogs <- readLines("en_US/en_US.blogs.txt", warn = FALSE, n = 50000)
+twitter <- readLines("en_US/en_US.twitter.txt", warn = FALSE, n = 50000)
+```
+
+#Data processing
+
+Convert documents into a corpus:
+```{r}
+news_vec <- VectorSource(news)
+news_corpus <- Corpus(news_vec)
+blogs_vec <- VectorSource(blogs)
+blogs_corpus <- Corpus(blogs_vec)
+twitter_vec <- VectorSource(twitter)
+twitter_corpus <- Corpus(twitter_vec)
+```
+
+Shuffle documents into new sample.
+```{r}
+corpus <- sample(c(news_corpus, blogs_corpus, twitter_corpus), 150000, replace = FALSE)
+```
+
+#Transforming data
+
+Convert corpus to lower case:
+```{r}
+corpus <- tm_map(corpus, content_transformer(tolower))
+```
+
+Remove numbers from corpus:
+```{r}
+corpus <- tm_map(corpus, removeNumbers)
+```
+
+Remove punctuation:
+```{r}
+corpus <- tm_map(corpus, removePunctuation)
+```
+
+Remove non-ASCII characters:
+```{r}
+corpus <- tm_map(corpus, removeNonASCII)
+```
+
+Remove whitespaces:
+```{r}
+corpus <- tm_map(corpus, stripWhitespace)
+```
+
+#Ngram Tokenization
+
+Using the RWeka package, N-grams models are created to explore word frequencies.
+```{r}
+UnigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
+BigramTokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))
+TrigramTokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3))
+FourgramTokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 4, max = 4))
+```
+
+Create a Term Document Matrix (TDM) which reflects the number of times each word in the corpus is found in each of the documents:
+```{r}
+tdm_t1 <- TermDocumentMatrix(corpus, control = list(tokenize = UnigramTokenizer))
+tdm_t2 <- TermDocumentMatrix(corpus, control = list(tokenize = BigramTokenizer)) 
+tdm_t3 <- TermDocumentMatrix(corpus, control = list(tokenize = TrigramTokenizer))
+tdm_t4 <- TermDocumentMatrix(corpus, control = list(tokenize = FourgramTokenizer))
+```
+
+Take words that have highest frequency. Take unigrams that occured 5000 times in our corpus. Take bigrams that occured 500 times in our corpus. Take trigrams and fourgrams that occured 50 times. 
+```{r}
+freq_unig <- findFreqTerms(tdm_t1, 5000)
+freq_big <- findFreqTerms(tdm_t2, 500)
+freq_trig <- findFreqTerms(tdm_t3, 50)
+freq_fourg <- findFreqTerms(tdm_t4, 50)
+```
+
+Count how many times each ngrams apper in the text.xz
+```{r}
+frequency_unig <- rowSums(as.matrix(tdm_t1[freq_unig,]))
+frequency_unig <- data.frame(unigram = names(frequency_unig), frequency = frequency_unig)
+frequency_unig <- frequency_unig[with(frequency_unig, order(frequency, decreasing = TRUE)),]
+frequency_big <- rowSums(as.matrix(tdm_t2[freq_big,]))
+frequency_big <- data.frame(bigram = names(frequency_big), frequency = frequency_big)
+frequency_big <- frequency_big[with(frequency_big, order(frequency, decreasing = TRUE)),]
+frequency_trig <- rowSums(as.matrix(tdm_t3[freq_trig,]))
+frequency_trig <- data.frame(trigram = names(frequency_trig), frequency = frequency_trig)
+frequency_trig <- frequency_trig[with(frequency_trig, order(frequency, decreasing = TRUE)),]
+frequency_fourg <- rowSums(as.matrix(tdm_t4[freq_fourg,]))
+frequency_fourg <- data.frame(fourgram = names(frequency_fourg), frequency = frequency_fourg)
+frequency_fourg <- frequency_fourg[with(frequency_fourg, order(frequency, decreasing = TRUE)),]
+
+```
+
+Probability of ngrams:
+```{r}
+frequency_unig$prob <- frequency_unig$frequency/sum(frequency_unig$frequency)
+frequency_big$prob <- frequency_big$frequency/sum(frequency_big$frequency)
+frequency_trig$prob <- frequency_trig$frequency/sum(frequency_trig$frequency)
+frequency_fourg$prob <- frequency_fourg$frequency/sum(frequency_fourg$frequency)
+```
+
+#Plotting frequency of Ngrams
+
+Plotting frequency of unigrams:
+```{r}
+plot_freq_unig <- ggplot(frequency_unig, 
+                         aes(x = reorder(unigram, frequency), y = frequency)) +
+    geom_bar(stat = "identity") +
+    xlab("Unigram") + ylab("Frequency") +
+    labs(title = "Top Unigrams by Frequency") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(plot_freq_unig)
+```
+
+Plotting frequency of bigrams:
+```{r}
+plot_freq_big <- ggplot(frequency_big, 
+                        aes(x = reorder(bigram, frequency), y = frequency)) +
+    geom_bar(stat = "identity") +
+    xlab("Bigram") + ylab("Frequency") +
+    labs(title = "Top Bigrams by Frequency") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(plot_freq_big)
+```
+
+Plotting frequency of trigrams:
+```{r}
+plot_freq_trig <- ggplot(frequency_trig, 
+                         aes(x = reorder(trigram, frequency), y = frequency)) +
+    geom_bar(stat = "identity") +
+    xlab("Trigram") + ylab("Frequency") +
+    labs(title = "Top Trigrams by Frequency") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(plot_freq_trig)
+```
+
+Plotting frequency of fourgrams:
+```{r}
+plot_freq_fourg <- ggplot(frequency_fourg, 
+                          aes(x = reorder(fourgram, frequency), y = frequency)) +
+    geom_bar(stat = "identity") +
+    xlab("Fourgram") + ylab("Frequency") +
+    labs(title = "Top Fourgrams by Frequency") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(plot_freq_fourg)
+```
+
+We see that the distribution of words, even after filtering out the unique occurencies is still pretty skewed with a short pique and long tail to the right. The more N in N-gram we have, the less skewed the distribution becomes.
+
+Future work planned:
+1. Delete "bad" words
+2. Use Back-off and Linear Interpolation to predict next word
+3. Evaluate efficiency
